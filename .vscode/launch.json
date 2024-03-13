@@ -1,0 +1,28 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "sourceLanguages": [
+                "swift"
+            ],
+            "args": [],
+            "cwd": "${workspaceFolder:apt_listings}",
+            "name": "Debug apt_listings",
+            "program": "${workspaceFolder:apt_listings}/.build/debug/apt_listings",
+            "preLaunchTask": "swift: Build Debug apt_listings"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "sourceLanguages": [
+                "swift"
+            ],
+            "args": [],
+            "cwd": "${workspaceFolder:apt_listings}",
+            "name": "Release apt_listings",
+            "program": "${workspaceFolder:apt_listings}/.build/release/apt_listings",
+            "preLaunchTask": "swift: Build Release apt_listings"
+        }
+    ]
+}
