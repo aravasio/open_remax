@@ -8,7 +8,7 @@ Task {
 
     let provider: RemaxProvider = RemaxProvider()
     let result: [Listing] = try await provider.fetch(retryCount: 0)
-    print(result.count)
+    print(result)
 
     Debug.shared.log("End ...")
     semaphore.signal()

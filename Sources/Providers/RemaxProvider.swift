@@ -17,7 +17,7 @@ class RemaxProvider: ServiceProvider {
                                         "25028@Parque%20Chas," +
                                         "25054@Villa%20Urquiza"
 
-    private let pageSize: Int = 5
+    private let pageSize: Int = 500
     private let retryTolerance: Int = 5
 
     func fetch(retryCount: Int = 0) async throws -> [Listing] {
