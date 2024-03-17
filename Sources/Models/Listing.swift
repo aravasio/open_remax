@@ -1,6 +1,6 @@
 import Foundation
 
-struct Listing {
+public struct Listing {
     var address: String
     var price: String
     var description: String

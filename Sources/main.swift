@@ -5,10 +5,15 @@ let semaphore: DispatchSemaphore = DispatchSemaphore(value: 0)
 
 Task {    
 
-    let provider: RemaxProvider = RemaxProvider()
-    let result: [Listing] = try await provider.fetch(retryCount: 0)
+    print("running ...")
+    let result: [Listing] = try await FetchModule().fetch()
+    print("results: \(result.count)")
     
-    print(result.count)
+    // store listings into a DB
+    // for each element
+    // if listing already exists, check if there's new data on the element
+    // if the listing does not exist, add it to the DB and add it to the list of "newly published listings" array
+
     semaphore.signal()
 }
 
