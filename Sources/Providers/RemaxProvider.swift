@@ -76,7 +76,7 @@ class RemaxProvider: ServiceProvider {
     }
     #endif
     
-    #if os(linux)
+    #if os(Lginux)
     func linuxFetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
         
         let urlString: String = "https://www.remax.com.ar/listings/buy?" +
