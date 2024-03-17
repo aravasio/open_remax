@@ -1,4 +1,6 @@
 import Foundation
+import NIO
+import AsyncHTTPClient
 import SwiftSoup
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -17,48 +19,81 @@ class RemaxProvider: ServiceProvider {
                                         "25028@Parque%20Chas," +
                                         "25054@Villa%20Urquiza"
 
-    private let pageSize: Int = 500
-    private let retryTolerance: Int = 5
+    private let pageSize: Int = 135
+    private let retryTolerance: Int = 0
 
     func fetch(retryCount: Int = 0) async throws -> [Listing] {
-
-        Debug.shared.log("fetching ...")
+        print("PageSize: \(pageSize)")
         let result: Result<String, Error> = await fetchPropertyListings(neighborhoods: neighborhoods, pageSize: pageSize)
         
         switch result {
         case let .success(htmlString):
-            Debug.shared.log("success!")
             let listings: [Listing] = extractListings(from: htmlString)
             return listings
         
         case let .failure(error):
-            Debug.shared.log("Error: \(error)")
             if retryCount < retryTolerance {
-                Debug.shared.log("Retrying ... \(retryCount+1)/\(retryTolerance)")
                 return try await fetch(retryCount: retryCount + 1)
             } else {
+                Debug.shared.log(error)
                 throw error
             }
         }
     }
 
     func fetchPropertyListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
-        guard let url: URL = URL(
-            string: "https://www.remax.com.ar/listings/buy?" +
-                    "page=0&" +
-                    "pageSize=\(pageSize)&" +
-                    "sort=-priceUsd&" +
-                    "in:operationId=1&" +
-                    "in:typeId=1,2,3,4,5,6,7,8,9,10,11,12&" +
-                    "pricein=1:200000:250000&" +
-                    "locations=in::::\(neighborhoods):::"
-        ) else {
+
+        let urlString: String = "https://www.remax.com.ar/listings/buy?" +
+                                "page=0&" +
+                                "pageSize=\(pageSize)&" +
+                                "sort=-priceUsd&" +
+                                "in:operationId=1&" +
+                                "in:typeId=1,2,3,4,5,6,7,8,9,10,11,12&" +
+                                "pricein=1:200000:250000&" +
+                                "locations=in::::\(neighborhoods):::"
+
+        guard let _: URL = URL(string: urlString) else {
             return .failure(NSError(domain: "Invalid URL", code: 0, userInfo: nil))
         }
-        
+
+        Debug.shared.log("fetching from: \(urlString)")
+
         do {
-            let htmlString: String = try String(contentsOf: url, encoding: .utf8)
-            return .success(htmlString)
+            let httpClient: HTTPClient = HTTPClient(eventLoopGroupProvider: .singleton)
+            defer { Task { try await httpClient.shutdown() } }
+
+            /// MARK: - Using Swift Concurrency
+            var request: HTTPClientRequest = HTTPClientRequest(url: urlString)
+            request.method = .GET
+
+            // Set headers as seen in the browser request
+            request.headers.add(name: "Accept",
+                                value: "text/html")
+            request.headers.add(name: "Accept-Encoding",
+                                value: "identity") //value: "identity")
+            request.headers.add(name: "Accept-Language", 
+                                value: "en-US,en;q=0.5")
+            request.headers.add(name: "User-Agent", 
+                                value: "Mozilla/5.0 (X11; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0")
+            request.headers.add(name: "Connection",
+                                value: "keep-alive")
+
+            let response: HTTPClientResponse = try await httpClient.execute(request, timeout: .seconds(30))
+
+            switch response.status {
+                case .ok:
+                    let buffer: NIO.ByteBuffer = try await response.body.collect(upTo: 1024 * 1024 * 500) // 50 MB
+                    guard let body: String = buffer.getString(at: 0, length: buffer.readableBytes) else {
+                        return .failure(NSError(domain: "Data Encoding Error", code: 1, userInfo: nil))
+                    }
+
+                    return .success(body)
+
+                default:
+                    print(response.status)
+                    return .failure(NSError(domain: "Unexpected response.status", code: 2, userInfo: nil))
+            }
+
         } catch {
             return .failure(error)
         }
@@ -74,7 +109,7 @@ class RemaxProvider: ServiceProvider {
                 try extractedListings.append(createListingItem(from: element))
             }
         } catch {
-            print("Error: \(error)")
+            fatalError("Error: \(error)")
         }
         
         return extractedListings
