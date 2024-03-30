@@ -1,19 +1,49 @@
 import Foundation
-import SwiftSoup
+import GRDB
 
 let semaphore: DispatchSemaphore = DispatchSemaphore(value: 0)
 
-Task {    
-
+Task {
     print("running ...")
-    let result: [Listing] = try await FetchModule().fetch()
-    print("results: \(result.count)")
-    
-    // store listings into a DB
-    // for each element
-    // if listing already exists, check if there's new data on the element
-    // if the listing does not exist, add it to the DB and add it to the list of "newly published listings" array
 
+    // Initialize the database queue using DBModule
+    let dbModule = DBModule()
+    guard let dbQueue = try? dbModule.initializeDB() else {
+        print("Failed to initialize database")
+        return
+    }
+    
+    // Check if the database file exists
+    if dbModule.databaseFileExists() {
+        print("Database file exists")
+    } else {
+        print("Database file does not exist")
+    }
+    
+    // Check if the database contains data
+    do {
+        if try dbModule.databaseContainsData() {
+            print("Database contains data")
+        } else {
+            print("Database does not contain data")
+        }
+    } catch {
+        print("Error checking database data: \(error)")
+    }
+    
+    // Fetch listings using FetchModule
+    let listings: [Listing] = try await FetchModule().fetch()
+    print("total: \(listings.count)")
+
+    // Perform database operations
+    try await dbQueue.write { db in
+        for var listing in listings {
+            // Insert listing into the database
+            try listing.insert(db)
+        }
+    }
+    
+    print("end ...")
     semaphore.signal()
 }
 

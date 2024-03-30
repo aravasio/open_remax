@@ -41,11 +41,11 @@ extension FetchModule {
         }
         
         func fetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
-#if os(macOS)
+            #if os(macOS)
             await macOSFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
-#elseif os(Linux)
+            #elseif os(Linux)
             await linuxFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
-#endif
+            #endif
             
         }
         

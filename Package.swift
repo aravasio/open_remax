@@ -11,6 +11,7 @@ let package = Package(
     ],
     dependencies: [
         // Dependencies declare other packages that this package depends on.
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "6.25.0"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.3.2"),
         .package(url: "https://github.com/apple/swift-nio.git", from: "2.64.0"),
         .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.0.0"),
@@ -20,6 +21,7 @@ let package = Package(
         .executableTarget(
             name: "apt_listings",
             dependencies: [
+                .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIO", package: "swift-nio"),
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
                 .product(name: "AsyncHTTPClient", package: "async-http-client")
