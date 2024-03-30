@@ -122,24 +122,31 @@ class SQLiteModule: DBModule {
             )
         }
         
+        // Define the SQL query with each condition on its own line
         let query = """
-            SELECT COUNT(*)
-            FROM listing
-            WHERE address = \(listing.address)
-            AND price = \(listing.price)
-            AND description = \(listing.description)
-            AND totalArea = \(listing.totalArea)
-            AND coveredArea = \(listing.coveredArea)
-            AND rooms = \(listing.rooms)
-            AND bathrooms = \(listing.bathrooms)
-            """
+        SELECT COUNT(*)
+        FROM listing
+        WHERE address = ?
+        AND price = ?
+        AND description = ?
+        AND totalArea = ?
+        AND coveredArea = ?
+        AND rooms = ?
+        AND bathrooms = ?
+        """
         
+        // Collect parameters from the listing
+        let parameters = [listing.address, listing.price, listing.description,listing.totalArea,
+                          listing.coveredArea, listing.rooms, listing.bathrooms]
+        
+        // Execute the query with parameters
         return try queue.read { db in
-            let count = try Int.fetchOne(db, sql: query) ?? 0
+            // The fetchOne method automatically replaces placeholders with parameters from the array
+            let count = try Int.fetchOne(db, sql: query, arguments: StatementArguments(parameters)) ?? 0
             return count > 0
         }
     }
-    
+
     // Create the "listing" table if it doesn't exist
     private func createListingTable() throws {
         guard let queue = dbQueue else {

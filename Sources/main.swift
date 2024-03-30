@@ -2,6 +2,7 @@ import Foundation
 import GRDB
 
 let semaphore: DispatchSemaphore = DispatchSemaphore(value: 0)
+var newListings = [Listing]()
 
 //Task {
 //    let dbModule = SQLiteModule()
@@ -43,19 +44,38 @@ Task {
     }
     
     // Fetch listings using FetchModule
-    let listings: [Listing] = try await FetchModule().fetch()
-    print("total: \(listings.count)")
-
-    // Perform database operations
-    try await dbQueue.write { db in
-        for var listing in listings {
-            try dbModule.insert(listing: listing)
-        }
+    let fetchModule = FetchModule()
+    let listings: [Listing]
+    do {
+        listings = try await fetchModule.fetch()
+        print("Total listings fetched: \(listings.count)")
+    } catch {
+        print("Error fetching listings: \(error)")
+        return
     }
     
-    try await dbQueue.read { db in
-        let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listing") ?? 0
-        print("Rows in db: \(count)")
+    try listings.forEach {
+        try dbModule.insert(listing: $0)
+    }
+    
+    // Print the number of rows in the database
+    do {
+        try await dbQueue.read { db in
+            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listing") ?? 0
+            print("Rows in database: \(count)")
+        }
+    } catch {
+        print("Error reading database: \(error)")
+    }
+    
+    // Print information based on newListings array
+    if newListings.isEmpty {
+        print("No new listings were added to the database.")
+    } else {
+        print("New listings added to the database:")
+        for listing in newListings {
+            print(listing)
+        }
     }
     
     print("end ...")
