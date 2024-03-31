@@ -8,14 +8,15 @@ protocol DBModule {
     func databaseFileExists() -> Bool
     func getAllData(from tableName: String) throws -> [Row]
     func databaseContainsData() throws -> Bool
+    func listingExists(listing: Listing) throws -> Bool
     func insert(listing: Listing) throws
     func clearListingTable() throws
 }
 
 
 class SQLiteModule: DBModule {
-    let dbDirectoryPath: String = "./Sources/Modules/DBModule"
-    var dbFilePath: String { "\(dbDirectoryPath)/HomeR.sqlite" }
+    let dbDirectoryPath: String = "./local_database"
+    var dbFilePath: String { "\(dbDirectoryPath)/homer.sqlite" }
     var dbQueue: DatabaseQueue?
     
     // Create the database file if needed and return the database queue
@@ -35,6 +36,8 @@ class SQLiteModule: DBModule {
             let message = "Failed to initialize database"
             throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         }
+        print(FileManager.default.currentDirectoryPath)
+
         return queue
     }
     
@@ -69,51 +72,8 @@ class SQLiteModule: DBModule {
         }
     }
     
-    // Add a new listing to the table if it doesn't already exist
-    func insert(listing: Listing) throws {
-        guard let queue = dbQueue else {
-            let message = "Database queue is not initialized"
-            throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        
-        // Check if the listing already exists
-        if try listingExists(listing: listing) {
-            print("\(listing) already in table, skipped")
-            return
-        }
-        
-        // If the listing doesn't exist, add it to the table
-        var listing = listing // We need a mutating value
-        try queue.write { db in
-            try listing.insert(db)
-        }
-    }
-
-    // Clear all rows from the "listing" table
-    func clearListingTable() throws {
-        guard let queue = dbQueue else {
-            let message = "Database queue is not initialized"
-            throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        try queue.write { db in
-            try db.execute(sql: "DELETE FROM listing")
-        }
-    }
-    
-    // Create the database file if it doesn't exist
-    private func createDBFileIfNeeded() {
-        guard !FileManager.default.fileExists(atPath: dbFilePath) else { return }
-        do {
-            let manager = FileManager.default
-            try manager.createDirectory(atPath: dbDirectoryPath, withIntermediateDirectories: true, attributes: nil)
-            manager.createFile(atPath: dbFilePath, contents: nil, attributes: nil)
-        } catch {
-            print("Error creating database file: \(error)")
-        }
-    }
-    
     // Check if a listing already exists in the table
-    private func listingExists(listing: Listing) throws -> Bool {
+    func listingExists(listing: Listing) throws -> Bool {
         guard let queue = dbQueue else {
             throw NSError(
                 domain: "DBModule",
@@ -144,6 +104,42 @@ class SQLiteModule: DBModule {
             // The fetchOne method automatically replaces placeholders with parameters from the array
             let count = try Int.fetchOne(db, sql: query, arguments: StatementArguments(parameters)) ?? 0
             return count > 0
+        }
+    }
+    
+    // Add a new listing to the table if it doesn't already exist
+    func insert(listing: Listing) throws {
+        guard let queue = dbQueue else {
+            let message = "Database queue is not initialized"
+            throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        
+        var listing = listing // We need a mutating value
+        try queue.write { db in
+            try listing.insert(db)
+        }
+    }
+
+    // Clear all rows from the "listing" table
+    func clearListingTable() throws {
+        guard let queue = dbQueue else {
+            let message = "Database queue is not initialized"
+            throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM listing")
+        }
+    }
+    
+    // Create the database file if it doesn't exist
+    private func createDBFileIfNeeded() {
+        guard !FileManager.default.fileExists(atPath: dbFilePath) else { return }
+        do {
+            let manager = FileManager.default
+            try manager.createDirectory(atPath: dbDirectoryPath, withIntermediateDirectories: true, attributes: nil)
+            manager.createFile(atPath: dbFilePath, contents: nil, attributes: nil)
+        } catch {
+            print("Error creating database file: \(error)")
         }
     }
 

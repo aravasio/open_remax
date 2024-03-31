@@ -73,7 +73,7 @@ extension FetchModule {
         }
 #endif
         
-#if os(Lginux)
+#if os(Linux)
         func linuxFetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
             
             let urlString: String = "https://www.remax.com.ar/listings/buy?" +
@@ -139,19 +139,25 @@ extension FetchModule {
             
             do {
                 let document: Document = try SwiftSoup.parse(htmlString)
-                let listingsElements: Elements = try document.select("div.card-remax")
-                try listingsElements.forEach { (element: SwiftSoup.Element) in
-                    try extractedListings.append(createListingItem(from: element))
+                let listingLinkElements: Elements = try document.select("a[target=_blank]:has(div.card-remax)")
+
+                for element in listingLinkElements {
+                    let href: String = try element.attr("href")
+                    if let listingElement = try element.select("div.card-remax").first() {
+                        let listing = try createListingItem(from: listingElement, with: href)
+                        extractedListings.append(listing)
+                    }
                 }
             } catch {
-                fatalError("Error: \(error)")
+                print("Error extracting listings: \(error)")
             }
-            
+
             return extractedListings
         }
         
-        fileprivate func createListingItem(from element: SwiftSoup.Element) throws -> Listing {
+        fileprivate func createListingItem(from element: SwiftSoup.Element, with link: String) throws -> Listing {
             do {
+                let link: String = link
                 let address: String = try element.select("p.card__address").text()
                 let price: String = try element.select("p.card__price").text()
                 let description: String = try element.select("p.card__description").text()
@@ -161,6 +167,7 @@ extension FetchModule {
                 let bathrooms: String = try element.select("div.card__feature--item.feature--bathroom span").text()
                 
                 return Listing(
+                    link: link,
                     address: address,
                     price: price,
                     description: description,

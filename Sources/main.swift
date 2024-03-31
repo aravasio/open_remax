@@ -1,74 +1,26 @@
 import Foundation
 import GRDB
+import Combine
 
-let semaphore: DispatchSemaphore = DispatchSemaphore(value: 0)
-var newListings = [Listing]()
+// Function to fetch listings
+func fetchListings(fetchModule: FetchModule) async throws -> [Listing] {
+    return try await fetchModule.fetch()
+}
 
-//Task {
-//    let dbModule = SQLiteModule()
-//    do {
-//        try dbModule.initializeDB()
-//        try dbModule.clearListingTable()
-//        print("Listing table cleared successfully")
-//    } catch {
-//        print("Error clearing listing table: \(error)")
-//    }
-//}
-
-Task {
-    print("running ...")
-
-    // Initialize the database queue using DBModule
-    let dbModule: DBModule = SQLiteModule()
-    guard let dbQueue = try? dbModule.initializeDB() else {
-        print("Failed to initialize database")
-        return
-    }
-    
-    // Check if the database file exists
-    if dbModule.databaseFileExists() {
-        print("Database file exists")
-    } else {
-        print("Database file does not exist")
-    }
-    
-    // Check if the database contains data
-    do {
-        if try dbModule.databaseContainsData() {
-            print("Database contains data")
-        } else {
-            print("Database does not contain data")
+// Function to insert listings into the database
+func insert(listings: [Listing], into db: DBModule) async throws -> [Listing] {
+    var newListings: [Listing] = []
+    for listing in listings {
+        if try !db.listingExists(listing: listing) {
+            newListings.append(listing)
+            try db.insert(listing: listing)
         }
-    } catch {
-        print("Error checking database data: \(error)")
     }
-    
-    // Fetch listings using FetchModule
-    let fetchModule = FetchModule()
-    let listings: [Listing]
-    do {
-        listings = try await fetchModule.fetch()
-        print("Total listings fetched: \(listings.count)")
-    } catch {
-        print("Error fetching listings: \(error)")
-        return
-    }
-    
-    try listings.forEach {
-        try dbModule.insert(listing: $0)
-    }
-    
-    // Print the number of rows in the database
-    do {
-        try await dbQueue.read { db in
-            let count = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM listing") ?? 0
-            print("Rows in database: \(count)")
-        }
-    } catch {
-        print("Error reading database: \(error)")
-    }
-    
-    // Print information based on newListings array
+    return newListings
+}
+
+// Function to handle the final processing based on newListings array
+func processNewListings(newListings: [Listing]) {
     if newListings.isEmpty {
         print("No new listings were added to the database.")
     } else {
@@ -77,9 +29,33 @@ Task {
             print(listing)
         }
     }
-    
-    print("end ...")
-    semaphore.signal()
 }
 
-semaphore.wait()
+// Main function to coordinate tasks
+func main() async {
+    do {
+        print("Start of main function.")
+        // Initialize the database
+        let dbModule = SQLiteModule()
+        _ = try dbModule.initializeDB()
+        
+        // Logging database status with a more sophisticated logging system could be considered here
+        print(dbModule.databaseFileExists() ? "Database file exists" : "Database file does not exist")
+        
+        // Check if the database contains data
+        let databaseContainsData = try dbModule.databaseContainsData()
+        print(databaseContainsData ? "Database contains data" : "Database does not contain data")
+        
+        // Fetch and insert listings
+        let fetchModule = FetchModule()
+        let listings = try await fetchListings(fetchModule: fetchModule)
+        let newListings = try await insert(listings: listings, into: dbModule)
+        processNewListings(newListings: newListings)
+        print("End of main function.")
+    } catch {
+        print("An error occurred: \(error)")
+    }
+}
+
+// Call the main function to start execution
+await main()

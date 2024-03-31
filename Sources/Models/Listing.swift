@@ -2,6 +2,7 @@ import GRDB
 
 public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
     var id: Int64?
+    var link: String
     var address: String
     var price: String
     var description: String
@@ -12,6 +13,7 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
 
     enum Columns {
         static let id = Column(CodingKeys.id)
+        static let link = Column(CodingKeys.link)
         static let address = Column(CodingKeys.address)
         static let price = Column(CodingKeys.price)
         static let description = Column(CodingKeys.description)
@@ -21,9 +23,9 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
         static let bathrooms = Column(CodingKeys.bathrooms)
     }
 
-    // Define CodingKeys if you want to customize column names
     enum CodingKeys: String, CodingKey {
         case id
+        case link
         case address
         case price
         case description
@@ -33,6 +35,5 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
         case bathrooms
     }
 
-    // Add any other properties or methods as needed
+    // Implement the database methods for fetching and persisting records as needed
 }
-
