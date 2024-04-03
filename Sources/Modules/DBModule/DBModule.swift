@@ -46,7 +46,6 @@ class SQLiteModule: DBModule {
         return FileManager.default.fileExists(atPath: dbFilePath)
     }
     
-    // Check if the "listing" table exists and if it contains data
     func getAllData(from tableName: String) throws -> [Row] {
         guard let queue = dbQueue else {
             let message = "Database queue is not initialized"
@@ -86,7 +85,8 @@ class SQLiteModule: DBModule {
         let query = """
         SELECT COUNT(*)
         FROM listing
-        WHERE address = ?
+        WHERE link = ?
+        AND address = ?
         AND price = ?
         AND description = ?
         AND totalArea = ?
@@ -96,7 +96,7 @@ class SQLiteModule: DBModule {
         """
         
         // Collect parameters from the listing
-        let parameters = [listing.address, listing.price, listing.description,listing.totalArea,
+        let parameters = [listing.link, listing.address, listing.price, listing.description,listing.totalArea,
                           listing.coveredArea, listing.rooms, listing.bathrooms]
         
         // Execute the query with parameters
@@ -153,8 +153,10 @@ class SQLiteModule: DBModule {
             if try !db.tableExists("listing") {
                 try db.create(table: "listing") { table in
                     table.autoIncrementedPrimaryKey("id")
+                    table.column("link", .text).notNull()
                     table.column("address", .text).notNull()
                     table.column("price", .text).notNull()
+                    table.column("expenses", .text).notNull()
                     table.column("description", .text).notNull()
                     table.column("totalArea", .text).notNull()
                     table.column("coveredArea", .text).notNull()

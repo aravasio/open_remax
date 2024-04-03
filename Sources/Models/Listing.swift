@@ -5,6 +5,7 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
     var link: String
     var address: String
     var price: String
+    var expenses: String
     var description: String
     var totalArea: String
     var coveredArea: String
@@ -16,6 +17,7 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
         static let link = Column(CodingKeys.link)
         static let address = Column(CodingKeys.address)
         static let price = Column(CodingKeys.price)
+        static let expenses = Column(CodingKeys.expenses)
         static let description = Column(CodingKeys.description)
         static let totalArea = Column(CodingKeys.totalArea)
         static let coveredArea = Column(CodingKeys.coveredArea)
@@ -28,12 +30,12 @@ public struct Listing: Codable, FetchableRecord, MutablePersistableRecord {
         case link
         case address
         case price
+        case expenses
         case description
         case totalArea
         case coveredArea
         case rooms
         case bathrooms
     }
-
-    // Implement the database methods for fetching and persisting records as needed
+    
 }

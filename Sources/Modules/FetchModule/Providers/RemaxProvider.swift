@@ -14,11 +14,13 @@ fileprivate protocol ServiceProvider {
 extension FetchModule {
     class RemaxProvider: ServiceProvider {
         
-        private let neighborhoods: String = "25006@Belgrano," +
-        "25012@Coghlan," +
-        "25013@Colegiales," +
-        "25028@Parque%20Chas," +
-        "25054@Villa%20Urquiza"
+        private let neighborhoods: String = [
+            "25006@Belgrano",
+            "25012@Coghlan",
+            "25013@Colegiales",
+            "25028@Parque%20Chas",
+            "25054@Villa%20Urquiza"
+        ].joined(separator: ",")
         
         private let pageSize: Int = 500
         private let retryTolerance: Int = 0
@@ -41,11 +43,11 @@ extension FetchModule {
         }
         
         func fetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
-            #if os(macOS)
+#if os(macOS)
             await macOSFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
-            #elseif os(Linux)
+#elseif os(Linux)
             await linuxFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
-            #endif
+#endif
             
         }
         
@@ -133,18 +135,23 @@ extension FetchModule {
         }
 #endif
         
-        
         func extractListings(from htmlString: String) -> [Listing] {
             var extractedListings: [Listing] = []
-            
+
             do {
                 let document: Document = try SwiftSoup.parse(htmlString)
-                let listingLinkElements: Elements = try document.select("a[target=_blank]:has(div.card-remax)")
-
-                for element in listingLinkElements {
-                    let href: String = try element.attr("href")
-                    if let listingElement = try element.select("div.card-remax").first() {
-                        let listing = try createListingItem(from: listingElement, with: href)
+                
+                // Selects `qr-card-property` elements, which are the main containers for each listing item.
+                // Each `qr-card-property` contains:
+                //      <a>: the first child link with the listing URL
+                //      <div.card-remax>: contains detailed listing information.
+                // This approach ensures we capture the essential data for constructing Listing objects.
+                let qrCardPropertyElements = try document.select("qr-card-property")
+                for qrCardProperty in qrCardPropertyElements.array() {
+                    if let linkNode = try qrCardProperty.select("a").first(),
+                       let detailsNode = try qrCardProperty.select("div.card-remax").last() {
+                        let href: String = try linkNode.attr("href")
+                        let listing = try createListingItem(from: detailsNode, with: href)
                         extractedListings.append(listing)
                     }
                 }
@@ -155,30 +162,83 @@ extension FetchModule {
             return extractedListings
         }
         
-        fileprivate func createListingItem(from element: SwiftSoup.Element, with link: String) throws -> Listing {
-            do {
-                let link: String = link
-                let address: String = try element.select("p.card__address").text()
-                let price: String = try element.select("p.card__price").text()
-                let description: String = try element.select("p.card__description").text()
-                let totalArea: String = try element.select("div.card__feature--item.feature--m2total span").text()
-                let coveredArea: String = try element.select("div.card__feature--item.feature--m2cover span").text()
-                let rooms: String = try element.select("div.card__feature--item.feature--ambientes span").text()
-                let bathrooms: String = try element.select("div.card__feature--item.feature--bathroom span").text()
-                
-                return Listing(
-                    link: link,
-                    address: address,
-                    price: price,
-                    description: description,
-                    totalArea: totalArea,
-                    coveredArea: coveredArea,
-                    rooms: rooms,
-                    bathrooms: bathrooms
-                )
-            } catch {
-                throw error
-            }
+        fileprivate func createListingItem(from element: Element, with link: String) throws -> Listing {
+            let link = "http://www.remax.com.ar" + link
+            
+            let addressSelector = """
+                                  div.card-remax__container
+                                  div.card__ubication-and-address
+                                  p.card__address
+                                  """
+            let priceSelector = """
+                                div.card-remax__container
+                                div.card__header
+                                div.card__price-and-expenses
+                                p.card__price
+                                """
+            let expensesSelector = """
+                                   div.card-remax__container
+                                   div.card__header
+                                   div.card__price-and-expenses
+                                   p.card__expenses
+                                   """
+            let descriptionSelector = """
+                                      div.card-remax__container
+                                      div.card__description-and-brokers
+                                      p.card__description
+                                      """
+            let totalAreaSelector = """
+                                    div.card-remax__container
+                                    div.card__feature
+                                    div.card__m2total-and-m2cover
+                                    div.card__feature--item.feature--m2total
+                                    span
+                                    """
+            let coveredAreaSelector = """
+                                      div.card-remax__container
+                                      div.card__feature
+                                      div.card__m2total-and-m2cover
+                                      div.card__feature--item.feature--m2cover
+                                      span
+                                      """
+            let roomsSelector = """
+                                div.card-remax__container
+                                div.card__feature
+                                div.card__rooms-and-bathroom-and-units
+                                div.card__feature--item.feature--ambientes
+                                span
+                                """
+            let bathroomsSelector = """
+                                    div.card-remax__container
+                                    div.card__feature
+                                    div.card__rooms-and-bathroom-and-units
+                                    div.card__feature--item.feature--bathroom
+                                    span
+                                    """
+
+            let address = try element.select(addressSelector).text()
+            let priceText = try element.select(priceSelector).text()
+            let expensesText = try element.select(expensesSelector).text()
+            // Extracting numeric values only for price and expenses
+            let price = priceText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            let expenses = expensesText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+            let description = try element.select(descriptionSelector).text()
+            let totalArea = try element.select(totalAreaSelector).text()
+            let coveredArea = try element.select(coveredAreaSelector).text()
+            let rooms = try element.select(roomsSelector).text()
+            let bathrooms = try element.select(bathroomsSelector).text()
+
+            return Listing(
+                link: link,
+                address: address,
+                price: price,
+                expenses: expenses,
+                description: description,
+                totalArea: totalArea,
+                coveredArea: coveredArea,
+                rooms: rooms,
+                bathrooms: bathrooms
+            )
         }
     }
 }
