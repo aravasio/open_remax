@@ -59,3 +59,5 @@ func main() async {
 
 // Call the main function to start execution
 await main()
+
+//fetchAndTrimHTML(url: "https://www.remax.com.ar/listings/departamento-venta-3-ambientes-belgrano-r")

@@ -7,8 +7,13 @@ import FoundationNetworking
 #endif
 
 fileprivate protocol ServiceProvider {
-    func fetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error>
-    func extractListings(from htmlString: String) -> [Listing]
+    func fetchListingsResults(neighborhoods: String, pageSize: Int) async -> Result<String, Error>
+    func extractDetailsURL(from htmlString: String) -> [URL]
+//    func extractListings(from htmlString: String) throws -> Listing
+}
+
+enum ApartmentListingError: Error {
+    case parsingFailed(reason: String)
 }
 
 extension FetchModule {
@@ -26,11 +31,18 @@ extension FetchModule {
         private let retryTolerance: Int = 0
         
         func fetch(retryCount: Int = 0) async throws -> [Listing] {
-            let result: Result<String, Error> = await fetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
+            let result: Result<String, Error> = await fetchListingsResults(neighborhoods: neighborhoods, pageSize: pageSize)
             
             switch result {
             case let .success(htmlString):
-                let listings: [Listing] = extractListings(from: htmlString)
+                let urls: [URL] = extractDetailsURL(from: htmlString)
+                var listings: [Listing] = []
+                
+                for url in urls {
+                    let detailsHTML: String = try String(contentsOf: url, encoding: .utf8)
+                    let listing = try extractListings(from: detailsHTML, using: url)
+                }
+                
                 return listings
                 
             case let .failure(error):
@@ -42,13 +54,12 @@ extension FetchModule {
             }
         }
         
-        func fetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
+        func fetchListingsResults(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
 #if os(macOS)
             await macOSFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
 #elseif os(Linux)
             await linuxFetchListings(neighborhoods: neighborhoods, pageSize: pageSize)
 #endif
-            
         }
         
 #if os(macOS)
@@ -73,9 +84,7 @@ extension FetchModule {
                 return .failure(error)
             }
         }
-#endif
-        
-#if os(Linux)
+#elseif os(Linux)
         func linuxFetchListings(neighborhoods: String, pageSize: Int) async -> Result<String, Error> {
             
             let urlString: String = "https://www.remax.com.ar/listings/buy?" +
@@ -135,110 +144,144 @@ extension FetchModule {
         }
 #endif
         
-        func extractListings(from htmlString: String) -> [Listing] {
-            var extractedListings: [Listing] = []
-
+        func extractDetailsURL(from htmlString: String) -> [URL] {
+            var urls: [URL] = []
             do {
                 let document: Document = try SwiftSoup.parse(htmlString)
                 
                 // Selects `qr-card-property` elements, which are the main containers for each listing item.
                 // Each `qr-card-property` contains:
                 //      <a>: the first child link with the listing URL
-                //      <div.card-remax>: contains detailed listing information.
                 // This approach ensures we capture the essential data for constructing Listing objects.
                 let qrCardPropertyElements = try document.select("qr-card-property")
                 for qrCardProperty in qrCardPropertyElements.array() {
-                    if let linkNode = try qrCardProperty.select("a").first(),
-                       let detailsNode = try qrCardProperty.select("div.card-remax").last() {
+                    if let linkNode = try qrCardProperty.select("a").first() {
                         let href: String = try linkNode.attr("href")
-                        let listing = try createListingItem(from: detailsNode, with: href)
-                        extractedListings.append(listing)
+                        if let url = URL(string: "http://www.remax.com.ar" + href) {
+                            urls.append(url)
+                        }
                     }
                 }
             } catch {
                 print("Error extracting listings: \(error)")
             }
-
-            return extractedListings
-        }
-        
-        fileprivate func createListingItem(from element: Element, with link: String) throws -> Listing {
-            let link = "http://www.remax.com.ar" + link
             
-            let addressSelector = """
-                                  div.card-remax__container
-                                  div.card__ubication-and-address
-                                  p.card__address
-                                  """
-            let priceSelector = """
-                                div.card-remax__container
-                                div.card__header
-                                div.card__price-and-expenses
-                                p.card__price
-                                """
-            let expensesSelector = """
-                                   div.card-remax__container
-                                   div.card__header
-                                   div.card__price-and-expenses
-                                   p.card__expenses
-                                   """
-            let descriptionSelector = """
-                                      div.card-remax__container
-                                      div.card__description-and-brokers
-                                      p.card__description
-                                      """
-            let totalAreaSelector = """
-                                    div.card-remax__container
-                                    div.card__feature
-                                    div.card__m2total-and-m2cover
-                                    div.card__feature--item.feature--m2total
-                                    span
-                                    """
-            let coveredAreaSelector = """
-                                      div.card-remax__container
-                                      div.card__feature
-                                      div.card__m2total-and-m2cover
-                                      div.card__feature--item.feature--m2cover
-                                      span
-                                      """
-            let roomsSelector = """
-                                div.card-remax__container
-                                div.card__feature
-                                div.card__rooms-and-bathroom-and-units
-                                div.card__feature--item.feature--ambientes
-                                span
-                                """
-            let bathroomsSelector = """
-                                    div.card-remax__container
-                                    div.card__feature
-                                    div.card__rooms-and-bathroom-and-units
-                                    div.card__feature--item.feature--bathroom
-                                    span
-                                    """
-
-            let address = try element.select(addressSelector).text()
-            let priceText = try element.select(priceSelector).text()
-            let expensesText = try element.select(expensesSelector).text()
-            // Extracting numeric values only for price and expenses
-            let price = priceText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-            let expenses = expensesText.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
-            let description = try element.select(descriptionSelector).text()
-            let totalArea = try element.select(totalAreaSelector).text()
-            let coveredArea = try element.select(coveredAreaSelector).text()
-            let rooms = try element.select(roomsSelector).text()
-            let bathrooms = try element.select(bathroomsSelector).text()
-
+            return urls
+        }
+                
+        func extractListings(from htmlString: String, using url: URL) throws -> Listing? {
+            let doc = try SwiftSoup.parse(htmlString)
+            
+            let price = try extractPrice(from: doc)
+            let details = try extractCardDetails(from: doc)
+            
+            guard let address = try doc.select("div#card-map div#content p#ubication-text").first()?.text() else {
+                throw ApartmentListingError.parsingFailed(reason: "Root element 'div#card-map div#content p#ubication-text' not found")
+            }
+            
+            let mapCoordinatesNode = try doc.select("div#card-map div#map div#map-wrapper img").attr("abs:src")
+            guard !mapCoordinatesNode.isEmpty else {
+                throw ApartmentListingError.parsingFailed(reason: "Map image src not found")
+            }
+            
+            let coordinates = try extractCoordinates(from: mapCoordinatesNode)
+            
             return Listing(
-                link: link,
+                link: url.absoluteString,
                 address: address,
                 price: price,
-                expenses: expenses,
-                description: description,
-                totalArea: totalArea,
-                coveredArea: coveredArea,
-                rooms: rooms,
-                bathrooms: bathrooms
+                expenses: details.expenses,
+                description: details.description,
+                totalArea: details.totalSurfaceArea,
+                coveredArea: details.coveredSurfaceArea,
+                rooms: details.rooms,
+                bathrooms: details.bathrooms,
+                toilettes: details.toilettes,
+                bedrooms: details.bedrooms,
+                garage: details.garage,
+                antiquity: details.antiquity,
+                suitableForCredit: details.suitableForCredit,
+                offersFinancing: details.offersFinancing,
+                floorsInTheProperty: details.floorsInTheProperty
             )
         }
+        
+        func extractPrice(from doc: Document) throws -> String {
+            guard let priceText = try doc.select("qr-card-info-prop div#container div.ng-star-inserted div#price-container p").first()?.text() else {
+                throw ApartmentListingError.parsingFailed(reason: "Price text not found")
+            }
+            return priceText
+        }
+        
+        fileprivate func extractCoordinates(from src: String) throws -> (latitude: String, longitude: String) {
+            guard let url = URL(string: src),
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+                  let queryItems = components.queryItems else {
+                throw ApartmentListingError.parsingFailed(reason: "Failed to parse URL or query items")
+            }
+            
+            for item in queryItems {
+                if item.name == "markers", let value = item.value {
+                    // Expecting value format to be "color:red|latitude,longitude"
+                    let markerComponents = value.components(separatedBy: "|").last
+                    let coordinates = markerComponents?.split(separator: ",").map(String.init)
+                    if let latitude = coordinates?.first,
+                       let longitude = coordinates?.last {
+                        return (latitude, longitude)
+                    } else {
+                        throw ApartmentListingError.parsingFailed(reason: "Coordinates not found or invalid")
+                    }
+                }
+            }
+            
+            throw ApartmentListingError.parsingFailed(reason: "Markers query item not found")
+        }
+        
+        fileprivate func extractCardDetails(from doc: Document) throws -> ExtractedDetails {
+            //extract details from qr-card-details-prop
+            guard let element = try doc.select("qr-card-details-prop").first() else {
+                throw ApartmentListingError.parsingFailed(reason: "Root element 'qr-card-details-prop' not found")
+            }
+            
+            guard let description = try element.select("div#title h3#last").first()?.text() else {
+                throw ApartmentListingError.parsingFailed(reason: "Description not found")
+            }
+            
+            // Attempt to extract other required fields in a similar manner, throwing an error if any are not found
+            let totalSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie total)", errorReason: "Total Surface Area not found")
+            let coveredSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie cubierta)", errorReason: "Covered Surface Area not found")
+            let semiCoveredSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie semicubierta)", errorReason: "Semi-Covered Surface Area not found")
+            let rooms = try findOrThrow(element, selector: "span.feature-detail:contains(ambientes)", errorReason: "Rooms not found")
+            let bathrooms = try findOrThrow(element, selector: "span.feature-detail:contains(baños)", errorReason: "Bathrooms not found")
+            let toilettes = try findOrThrow(element, selector: "span.feature-detail:contains(toilets)", errorReason: "Toilettes not found")
+            let bedrooms = try findOrThrow(element, selector: "span.feature-detail:contains(dormitorios)", errorReason: "Bedrooms not found")
+            let garage = try findOrThrow(element, selector: "span.feature-detail:contains(cocheras)", errorReason: "Garage not found")
+            let antiquity = try findOrThrow(element, selector: "div#antiquity span", errorReason: "Antiquity not found")
+            let expenses = try findOrThrow(element, selector: "span.feature-detail:contains(expensas)", errorReason: "Expenses not found")
+            let suitableForCredit = try findOrThrow(element, selector: "span.feature-detail:contains(Apto credito)", errorReason: "Suitable for Credit not found")
+            let offersFinancing = try findOrThrow(element, selector: "span.feature-detail:contains(ofrece financiamiento)", errorReason: "Offers Financing not found")
+            let floorsInTheProperty = try findOrThrow(element, selector: "span.feature-detail:contains(pisos de la propiedad)", errorReason: "Floors in the Property not found")
+            
+            return ExtractedDetails(description, totalSurfaceArea, coveredSurfaceArea, semiCoveredSurfaceArea, rooms,
+                                    bathrooms, toilettes, bedrooms, garage, antiquity, expenses,
+                                    suitableForCredit, offersFinancing, floorsInTheProperty)
+            
+        }
+        
+        // Helper function to attempt finding an element with a specific selector, throwing an error if not found
+        func findOrThrow(_ root: Element, selector: String, errorReason: String) throws -> String {
+            guard let text = try root.select(selector).first()?.text(), !text.isEmpty else {
+                throw ApartmentListingError.parsingFailed(reason: errorReason)
+            }
+            return text
+        }
+        
+        fileprivate typealias Address = (name: String, longitude: String, altitude: String)
+        fileprivate typealias ExtractedDetails = (
+            description: String, totalSurfaceArea: String, coveredSurfaceArea: String, semiCoveredSurfaceArea: String,
+            rooms: String, bathrooms: String, toilettes: String, bedrooms: String, garage: String, antiquity: String,
+            expenses: String, suitableForCredit: String, offersFinancing: String, floorsInTheProperty: String
+        )
     }
 }
+
