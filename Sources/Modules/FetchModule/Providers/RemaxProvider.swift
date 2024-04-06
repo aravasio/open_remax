@@ -7,9 +7,9 @@ import FoundationNetworking
 #endif
 
 fileprivate protocol ServiceProvider {
-    func fetchListingsResults(neighborhoods: String, pageSize: Int) async -> Result<String, Error>
+    func fetch(retryCount: Int) async throws -> [Listing]
+//    func fetchListingsResults(neighborhoods: String, pageSize: Int) async -> Result<String, Error>
     func extractDetailsURL(from htmlString: String) -> [URL]
-//    func extractListings(from htmlString: String) throws -> Listing
 }
 
 enum ApartmentListingError: Error {
@@ -27,7 +27,7 @@ extension FetchModule {
             "25054@Villa%20Urquiza"
         ].joined(separator: ",")
         
-        private let pageSize: Int = 500
+        private let pageSize: Int = 5
         private let retryTolerance: Int = 0
         
         func fetch(retryCount: Int = 0) async throws -> [Listing] {
@@ -41,6 +41,7 @@ extension FetchModule {
                 for url in urls {
                     let detailsHTML: String = try String(contentsOf: url, encoding: .utf8)
                     let listing = try extractListings(from: detailsHTML, using: url)
+                    listings.append(listing)
                 }
                 
                 return listings
@@ -144,22 +145,18 @@ extension FetchModule {
         }
 #endif
         
-        func extractDetailsURL(from htmlString: String) -> [URL] {
+        fileprivate func extractDetailsURL(from htmlString: String) -> [URL] {
             var urls: [URL] = []
             do {
                 let document: Document = try SwiftSoup.parse(htmlString)
+                // Adjusted selector to match the provided hierarchy more closely
+                let linkElements = try document.select("app-layout mat-sidenav-container mat-sidenav-content div.main-content div.page-content app-list div div.container qr-card-property a")
                 
-                // Selects `qr-card-property` elements, which are the main containers for each listing item.
-                // Each `qr-card-property` contains:
-                //      <a>: the first child link with the listing URL
-                // This approach ensures we capture the essential data for constructing Listing objects.
-                let qrCardPropertyElements = try document.select("qr-card-property")
-                for qrCardProperty in qrCardPropertyElements.array() {
-                    if let linkNode = try qrCardProperty.select("a").first() {
-                        let href: String = try linkNode.attr("href")
-                        if let url = URL(string: "http://www.remax.com.ar" + href) {
-                            urls.append(url)
-                        }
+                for element in linkElements.array() {
+                    let href: String = try element.attr("href")
+                    // Ensure the URL is complete; adjust the base URL if necessary
+                    if let url = URL(string: "https://www.remax.com.ar" + href) {
+                        urls.append(url)
                     }
                 }
             } catch {
@@ -168,20 +165,20 @@ extension FetchModule {
             
             return urls
         }
-                
-        func extractListings(from htmlString: String, using url: URL) throws -> Listing? {
+
+        fileprivate func extractListings(from htmlString: String, using url: URL) throws -> Listing {
             let doc = try SwiftSoup.parse(htmlString)
             
             let price = try extractPrice(from: doc)
             let details = try extractCardDetails(from: doc)
             
-            guard let address = try doc.select("div#card-map div#content p#ubication-text").first()?.text() else {
-                throw ApartmentListingError.parsingFailed(reason: "Root element 'div#card-map div#content p#ubication-text' not found")
+            guard let address = try doc.select(HTMLSelectors.Details.ubicationText).first()?.text() else {
+                throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.ubicationTextNotFound)
             }
             
-            let mapCoordinatesNode = try doc.select("div#card-map div#map div#map-wrapper img").attr("abs:src")
+            let mapCoordinatesNode = try doc.select(HTMLSelectors.Details.mapImageSrc).attr("abs:src")
             guard !mapCoordinatesNode.isEmpty else {
-                throw ApartmentListingError.parsingFailed(reason: "Map image src not found")
+                throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.mapImageSrcNotFound)
             }
             
             let coordinates = try extractCoordinates(from: mapCoordinatesNode)
@@ -206,9 +203,10 @@ extension FetchModule {
             )
         }
         
-        func extractPrice(from doc: Document) throws -> String {
-            guard let priceText = try doc.select("qr-card-info-prop div#container div.ng-star-inserted div#price-container p").first()?.text() else {
-                throw ApartmentListingError.parsingFailed(reason: "Price text not found")
+        
+        fileprivate func extractPrice(from doc: Document) throws -> String {
+            guard let priceText = try doc.select(HTMLSelectors.Details.price).first()?.text() else {
+                throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.priceNotFound)
             }
             return priceText
         }
@@ -220,52 +218,97 @@ extension FetchModule {
                 throw ApartmentListingError.parsingFailed(reason: "Failed to parse URL or query items")
             }
             
-            for item in queryItems {
-                if item.name == "markers", let value = item.value {
-                    // Expecting value format to be "color:red|latitude,longitude"
-                    let markerComponents = value.components(separatedBy: "|").last
-                    let coordinates = markerComponents?.split(separator: ",").map(String.init)
-                    if let latitude = coordinates?.first,
-                       let longitude = coordinates?.last {
-                        return (latitude, longitude)
-                    } else {
-                        throw ApartmentListingError.parsingFailed(reason: "Coordinates not found or invalid")
-                    }
-                }
-            }
+            guard let markersValue = queryItems.first(where: { $0.name == HTMLSelectors.URLParameters.markers })?.value
+            else { throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.markersNotFound) }
             
-            throw ApartmentListingError.parsingFailed(reason: "Markers query item not found")
+            let markerComponents = markersValue.components(separatedBy: "|").last
+            let coordinates = markerComponents?.split(separator: ",").map(String.init)
+            
+            guard let latitude = coordinates?.first, let longitude = coordinates?.last
+            else { throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.coordinatesInvalid) }
+            
+            return (latitude, longitude)
         }
         
         fileprivate func extractCardDetails(from doc: Document) throws -> ExtractedDetails {
-            //extract details from qr-card-details-prop
-            guard let element = try doc.select("qr-card-details-prop").first() else {
-                throw ApartmentListingError.parsingFailed(reason: "Root element 'qr-card-details-prop' not found")
+            guard let element = try doc.select(HTMLSelectors.Details.detailsProp).first() else {
+                throw ApartmentListingError.parsingFailed(reason: HTMLSelectors.Errors.rootNotFound)
             }
             
-            guard let description = try element.select("div#title h3#last").first()?.text() else {
-                throw ApartmentListingError.parsingFailed(reason: "Description not found")
-            }
+            let description = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.description,
+                errorReason: HTMLSelectors.Errors.descriptionNotFound)
+            let totalSurfaceAreaError = String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Total Surface Area")
+            let totalSurfaceArea = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.totalPrice,
+                errorReason: totalSurfaceAreaError)
+            let coveredSurfaceArea = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.coveredArea,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Covered Surface Area"))
+            let semiCoveredSurfaceArea = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.semiCoveredArea,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Semi-Covered Surface Area"))
+            let rooms = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.rooms,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Rooms"))
+            let bathrooms = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.bathrooms,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Bathrooms"))
+            let toilettes = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.toilets,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Toilettes"))
+            let bedrooms = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.bedrooms,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Bedrooms"))
+            let garage = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.garage,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Garage"))
+            let antiquity = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.antiquity,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Antiquity"))
+            let expenses = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.expenses,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Expenses"))
+            let suitableForCredit = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.suitableForCredit,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Suitable for Credit"))
+            let offersFinancing = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.offersFinancing,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Offers Financing"))
+            let floorsInTheProperty = try findOrThrow(
+                element,
+                selector: HTMLSelectors.Details.floorsInTheProperty,
+                errorReason: String(format: HTMLSelectors.Errors.detailNotFoundFormat, "Floors in the Property"))
             
-            // Attempt to extract other required fields in a similar manner, throwing an error if any are not found
-            let totalSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie total)", errorReason: "Total Surface Area not found")
-            let coveredSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie cubierta)", errorReason: "Covered Surface Area not found")
-            let semiCoveredSurfaceArea = try findOrThrow(element, selector: "span.feature-detail:contains(superficie semicubierta)", errorReason: "Semi-Covered Surface Area not found")
-            let rooms = try findOrThrow(element, selector: "span.feature-detail:contains(ambientes)", errorReason: "Rooms not found")
-            let bathrooms = try findOrThrow(element, selector: "span.feature-detail:contains(baños)", errorReason: "Bathrooms not found")
-            let toilettes = try findOrThrow(element, selector: "span.feature-detail:contains(toilets)", errorReason: "Toilettes not found")
-            let bedrooms = try findOrThrow(element, selector: "span.feature-detail:contains(dormitorios)", errorReason: "Bedrooms not found")
-            let garage = try findOrThrow(element, selector: "span.feature-detail:contains(cocheras)", errorReason: "Garage not found")
-            let antiquity = try findOrThrow(element, selector: "div#antiquity span", errorReason: "Antiquity not found")
-            let expenses = try findOrThrow(element, selector: "span.feature-detail:contains(expensas)", errorReason: "Expenses not found")
-            let suitableForCredit = try findOrThrow(element, selector: "span.feature-detail:contains(Apto credito)", errorReason: "Suitable for Credit not found")
-            let offersFinancing = try findOrThrow(element, selector: "span.feature-detail:contains(ofrece financiamiento)", errorReason: "Offers Financing not found")
-            let floorsInTheProperty = try findOrThrow(element, selector: "span.feature-detail:contains(pisos de la propiedad)", errorReason: "Floors in the Property not found")
-            
-            return ExtractedDetails(description, totalSurfaceArea, coveredSurfaceArea, semiCoveredSurfaceArea, rooms,
-                                    bathrooms, toilettes, bedrooms, garage, antiquity, expenses,
-                                    suitableForCredit, offersFinancing, floorsInTheProperty)
-            
+            return ExtractedDetails(
+                description: description,
+                totalSurfaceArea: totalSurfaceArea,
+                coveredSurfaceArea: coveredSurfaceArea,
+                semiCoveredSurfaceArea: semiCoveredSurfaceArea,
+                rooms: rooms,
+                bathrooms: bathrooms,
+                toilettes: toilettes,
+                bedrooms: bedrooms,
+                garage: garage,
+                antiquity: antiquity,
+                expenses: expenses,
+                suitableForCredit: suitableForCredit,
+                offersFinancing: offersFinancing,
+                floorsInTheProperty: floorsInTheProperty
+            )
         }
         
         // Helper function to attempt finding an element with a specific selector, throwing an error if not found
@@ -285,3 +328,41 @@ extension FetchModule {
     }
 }
 
+fileprivate struct HTMLSelectors {
+    enum Details {
+        static let qrCardProperty = "qr-card-property a"
+        static let price = "qr-card-info-prop div#container div.ng-star-inserted div#price-container p"
+        static let detailsProp = "qr-card-details-prop"
+        static let description = "div#title h3#last"
+        static let totalPrice = "span.feature-detail:contains(superficie total)"
+        static let coveredArea = "span.feature-detail:contains(superficie cubierta)"
+        static let semiCoveredArea = "span.feature-detail:contains(superficie semicubierta)"
+        static let rooms = "span.feature-detail:contains(ambientes)"
+        static let bathrooms = "span.feature-detail:contains(baños)"
+        static let toilets = "span.feature-detail:contains(toilets)"
+        static let bedrooms = "span.feature-detail:contains(dormitorios)"
+        static let garage = "span.feature-detail:contains(cocheras)"
+        static let antiquity = "div#antiquity span"
+        static let expenses = "span.feature-detail:contains(expensas)"
+        static let suitableForCredit = "span.feature-detail:contains(Apto credito)"
+        static let offersFinancing = "span.feature-detail:contains(ofrece financiamiento)"
+        static let floorsInTheProperty = "span.feature-detail:contains(pisos de la propiedad)"
+        static let ubicationText = "div#card-map div#content p#ubication-text"
+        static let mapImageSrc = "div#card-map div#map div#map-wrapper img"
+    }
+    
+    enum URLParameters {
+        static let markers = "markers"
+    }
+    
+    enum Errors {
+        static let priceNotFound = "Price text not found"
+        static let markersNotFound = "Markers query item not found"
+        static let coordinatesInvalid = "Coordinates not found or invalid"
+        static let rootNotFound = "Root element 'qr-card-details-prop' not found"
+        static let descriptionNotFound = "Description not found"
+        static let detailNotFoundFormat = "%@ not found"
+        static let ubicationTextNotFound = "Root element 'div#card-map div#content p#ubication-text' not found"
+        static let mapImageSrcNotFound = "Map image src not found"
+    }
+}
