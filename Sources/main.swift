@@ -3,13 +3,13 @@ import GRDB
 import Combine
 
 // Function to fetch listings
-func fetchListings(fetchModule: FetchModule) async throws -> [Listing] {
+func fetchListings(fetchModule: FetchModule) async throws -> [ListingDetail] {
     return try await fetchModule.fetch()
 }
 
 // Function to insert listings into the database
-func insert(listings: [Listing], into db: DBModule) async throws -> [Listing] {
-    var newListings: [Listing] = []
+func insert(listings: [ListingDetail], into db: DBModule) async throws -> [ListingDetail] {
+    var newListings: [ListingDetail] = []
     for listing in listings {
         if try !db.listingExists(listing: listing) {
             newListings.append(listing)
@@ -20,7 +20,7 @@ func insert(listings: [Listing], into db: DBModule) async throws -> [Listing] {
 }
 
 // Function to handle the final processing based on newListings array
-func processNewListings(newListings: [Listing]) {
+func processNewListings(newListings: [ListingDetail]) {
     if newListings.isEmpty {
         print("No new listings were added to the database.")
     } else {

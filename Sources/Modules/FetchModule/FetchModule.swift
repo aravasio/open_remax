@@ -11,7 +11,7 @@ public class FetchModule {
     
     public init() {}
     
-    public func fetch() async throws -> [Listing] {
+    public func fetch() async throws -> [ListingDetail] {
         let provider = RemaxProvider()
         return try await provider.fetch(retryCount: 0)
     }
