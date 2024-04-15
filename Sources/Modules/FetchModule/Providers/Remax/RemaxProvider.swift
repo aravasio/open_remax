@@ -45,22 +45,34 @@ extension FetchModule {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let slugs = try JSONDecoder().decode(ApiQueryResponse.self, from: data).page.slugs
                 
-                return try await fetchData(from: slugs)
+//                if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
+//                   let jsonData = try? JSONSerialization.data(withJSONObject: jsonObject, options: .prettyPrinted),
+//                   let jsonString = String(data: jsonData, encoding: .utf8) {
+//                    print(jsonString)
+//                }
+                
+                return try await fetchDetails(from: slugs)
             } catch {
                 throw error
             }
         }
         
-        private func fetchData(from slugs: [ListingSlug]) async throws -> [ListingDetail] {
+        private func fetchDetails(from slugs: [ListingSlug]) async throws -> [ListingDetail] {
             var listingDetails: [ListingDetail] = []
             for slug in slugs {
-                guard let url: URL = URL(
-                    string: "https://api-ar.redremax.com/remaxweb-ar/api/listings/findBySlug/\(slug.value)"
-                ) else {
-                    throw NSError(domain: "Invalid URL", code: 0, userInfo: nil)
-                }
+                let urlString = "https://api-ar.redremax.com/remaxweb-ar/api/listings/findBySlug/\(slug.value)"
+                guard let url: URL = URL(string: urlString)
+                else { throw NSError(domain: "Invalid URL", code: 0, userInfo: nil) }
+                
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let response = try JSONDecoder().decode(ListingDetailsResponse.self, from: data)
+                
+//                if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
+//                   let jsonData = try? JSONSerialization.data(withJSONObject: jsonObject, options: .prettyPrinted),
+//                   let jsonString = String(data: jsonData, encoding: .utf8) {
+//                    print(jsonString)
+//                }
+                
                 listingDetails.append(response.data)
             }
             

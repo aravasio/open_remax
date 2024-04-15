@@ -48,7 +48,12 @@ func main() async {
         
         // Fetch and insert listings
         let fetchModule = FetchModule()
+        let startTime = Date()
         let listings = try await fetchListings(fetchModule: fetchModule)
+        let endTime = Date()
+        let duration = endTime.timeIntervalSince(startTime)
+        print("Fetching listings took \(duration) seconds")
+        
         let newListings = try await insert(listings: listings, into: dbModule)
         processNewListings(newListings: newListings)
         print("End of main function.")
