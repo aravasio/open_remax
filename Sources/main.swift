@@ -2,35 +2,6 @@ import Foundation
 import GRDB
 import Combine
 
-// Function to fetch listings
-func fetchListings(fetchModule: FetchModule) async throws -> [ListingDetail] {
-    return try await fetchModule.fetch()
-}
-
-// Function to insert listings into the database
-func insert(listings: [ListingDetail], into db: DBModule) async throws -> [ListingDetail] {
-    var newListings: [ListingDetail] = []
-    for listing in listings {
-        if try !db.listingExists(listing: listing) {
-            newListings.append(listing)
-            try db.insert(listing: listing)
-        }
-    }
-    return newListings
-}
-
-// Function to handle the final processing based on newListings array
-func processNewListings(newListings: [ListingDetail]) {
-    if newListings.isEmpty {
-        print("No new listings were added to the database.")
-    } else {
-        print("New listings added to the database:")
-        for listing in newListings {
-            print(listing)
-        }
-    }
-}
-
 // Main function to coordinate tasks
 func main() async {
     do {
@@ -49,13 +20,12 @@ func main() async {
         // Fetch and insert listings
         let fetchModule = FetchModule()
         let startTime = Date()
-        let listings = try await fetchListings(fetchModule: fetchModule)
+        let listings = try await fetchModule.fetch()
         let endTime = Date()
         let duration = endTime.timeIntervalSince(startTime)
         print("Fetching listings took \(duration) seconds")
-        
-        let newListings = try await insert(listings: listings, into: dbModule)
-        processNewListings(newListings: newListings)
+        print("storing into DB \(listings.count) items ...")
+        try dbModule.insert(listings: listings)
         print("End of main function.")
     } catch {
         print("An error occurred: \(error)")
@@ -64,5 +34,3 @@ func main() async {
 
 // Call the main function to start execution
 await main()
-
-//fetchAndTrimHTML(url: "https://www.remax.com.ar/listings/departamento-venta-3-ambientes-belgrano-r")

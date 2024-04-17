@@ -9,7 +9,7 @@ protocol DBModule {
 //    func getAllData(from tableName: String) throws -> [Row]
     func databaseContainsData() throws -> Bool
     func listingExists(listing: ListingDetail) throws -> Bool
-    func insert(listing: ListingDetail) throws
+    func insert(listings: [ListingDetail]) throws
     func clearListingTable() throws
 }
 
@@ -106,15 +106,18 @@ class SQLiteModule: DBModule {
     }
     
     // Add a new listing to the table if it doesn't already exist
-    func insert(listing: ListingDetail) throws {
+    func insert(listings: [ListingDetail]) throws {
         guard let queue = dbQueue else {
             let message = "Database queue is not initialized"
             throw NSError(domain: "DBModule", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
         }
         
-        var listing = listing // We need a mutating value
-        try queue.write { db in
-            try listing.insert(db)
+        try queue.inTransaction { db in
+            for listing in listings {
+                var mutableListing = listing
+                try mutableListing.insert(db)
+            }
+            return .commit
         }
     }
     

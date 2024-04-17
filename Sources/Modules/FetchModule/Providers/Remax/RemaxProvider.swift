@@ -6,11 +6,12 @@ import FoundationNetworking
 #endif
 
 fileprivate protocol ServiceProvider {
-    func fetch(retryCount: Int) async throws -> [ListingDetail]
+    func fetch() async throws -> [ListingDetail]
 }
 
 enum ApartmentListingError: Error {
     case parsingFailed(reason: String)
+    case invalidURL
 }
 
 extension FetchModule {
@@ -24,59 +25,109 @@ extension FetchModule {
             "25054@Villa%20Urquiza"
         ].joined(separator: ",")
         
-        private let pageSize: Int = 500
+        private let MIN_PRICE = 200000
+        private let MAX_PRICE = 250000
+        private let PAGE_SIZE: Int = 1000
+
+        private var neighborhoodsFilter: String { "locations=in::::\(neighborhoods):::" }
+        
         private let retryTolerance: Int = 0
         
-        func fetch(retryCount: Int = 0) async throws -> [ListingDetail] {
+        func fetch() async throws -> [ListingDetail] {
+            do {
+                let slugs = try await fetchSlugs()
+                print("Fetched \(slugs.count) slugs...")
+                let details = try await fetchDetails(from: slugs)
+                return details
+            } catch {
+                throw error
+            }
+        }
+        
+        private func fetchSlugs(from page: Int = 0) async throws -> [ListingSlug] {
             guard let url: URL = URL(
                 string: "https://api-ar.redremax.com/remaxweb-ar/api/listings/findAll?" +
-                "page=0&" +
-                "pageSize=\(pageSize)&" +
+                "page=\(page)&" +
+                "pageSize=\(PAGE_SIZE)&" +
                 "sort=-priceUsd&" +
                 "in:operationId=1&" +
                 "in:typeId=1,2,3,4,5,6,7,8,9,10,11,12&" +
-                "pricein=1:200000:250000&" +
-                "locations=in::::\(neighborhoods):::"
+                "pricein=1:\(MIN_PRICE):\(MAX_PRICE)&"
+//                + neighborhoodsFilter
             ) else {
                 throw NSError(domain: "Invalid URL", code: 0, userInfo: nil)
             }
             
             do {
                 let (data, _) = try await URLSession.shared.data(from: url)
-                let slugs = try JSONDecoder().decode(ApiQueryResponse.self, from: data).page.slugs
+                let pageData = try JSONDecoder().decode(ApiQueryResponse.self, from: data).page
+                var fetchedSlugs: [ListingSlug] = []
+                print("Pages progress: \(pageData.page+1)/\(pageData.totalPages)")
                 
-//                if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-//                   let jsonData = try? JSONSerialization.data(withJSONObject: jsonObject, options: .prettyPrinted),
-//                   let jsonString = String(data: jsonData, encoding: .utf8) {
-//                    print(jsonString)
-//                }
+                if page < pageData.totalPages {
+                     fetchedSlugs = try await fetchSlugs(from: pageData.page + 1)
+                }
                 
-                return try await fetchDetails(from: slugs)
+                return pageData.slugs + fetchedSlugs
             } catch {
                 throw error
             }
         }
         
         private func fetchDetails(from slugs: [ListingSlug]) async throws -> [ListingDetail] {
-            var listingDetails: [ListingDetail] = []
-            for slug in slugs {
-                let urlString = "https://api-ar.redremax.com/remaxweb-ar/api/listings/findBySlug/\(slug.value)"
-                guard let url: URL = URL(string: urlString)
-                else { throw NSError(domain: "Invalid URL", code: 0, userInfo: nil) }
-                
-                let (data, _) = try await URLSession.shared.data(from: url)
-                let response = try JSONDecoder().decode(ListingDetailsResponse.self, from: data)
-                
-//                if let jsonObject = try? JSONSerialization.jsonObject(with: data, options: []),
-//                   let jsonData = try? JSONSerialization.data(withJSONObject: jsonObject, options: .prettyPrinted),
-//                   let jsonString = String(data: jsonData, encoding: .utf8) {
-//                    print(jsonString)
-//                }
-                
-                listingDetails.append(response.data)
-            }
-            
-            return listingDetails
+            let maxConcurrentTasks = 100  // Maximum number of concurrent tasks
+            var details = [ListingDetail]()
+            let progressTracker = ProgressTracker(total: slugs.count)
+
+            return try await withThrowingTaskGroup(of: ListingDetail.self, body: { group in
+                for chunk in slugs.chunked(into: maxConcurrentTasks) {
+                    for slug in chunk {
+                        group.addTask {
+                            let result = try await self.fetchDetail(for: slug)
+                            await progressTracker.increment()
+                            return result
+                        }
+                    }
+                    for try await detail in group {
+                        details.append(detail)
+                    }
+                }
+                return details
+            })
         }
+        
+        private func fetchDetail(for slug: ListingSlug) async throws -> ListingDetail {
+//            print("Fetching detail for slug: \(slug.value)")
+            guard let url = URL(string: "https://api-ar.redremax.com/remaxweb-ar/api/listings/findBySlug/\(slug.value)") else {
+                throw ApartmentListingError.invalidURL
+            }
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return try JSONDecoder().decode(ListingDetailsResponse.self, from: data).data
+        }
+    }
+}
+
+fileprivate extension Array {
+    /// Splits the array into chunks of the specified size.
+    /// - Parameter size: The maximum number of elements per chunk.
+    /// - Returns: An array of arrays where each sub-array has at most `size` elements.
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: self.count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, self.count)])
+        }
+    }
+}
+
+fileprivate actor ProgressTracker {
+    private var count: Int = 0
+    private let total: Int
+    
+    init(total: Int) {
+        self.total = total
+    }
+    
+    func increment() {
+        count += 1
+        print("Fetched \(count) out of \(total) details.")
     }
 }
