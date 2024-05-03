@@ -115,7 +115,7 @@ class SQLiteModule: DBModule {
         try queue.inTransaction { db in
             for listing in listings {
                 var mutableListing = listing
-                try mutableListing.insert(db)
+                try mutableListing.insert(db, onConflict: .ignore)
             }
             return .commit
         }
@@ -154,7 +154,8 @@ class SQLiteModule: DBModule {
             if try !db.tableExists("listing") {
                 try db.create(table: "listing") { table in
                     
-                    table.column("id", .text).primaryKey().notNull()
+                    table.column("id", .text)//.primaryKey().notNull()
+                    table.column("internal_id", .text).primaryKey().notNull()
                     table.column("title", .text).notNull()
                     table.column("slug", .text).notNull()
                     table.column("description", .text).notNull()
@@ -178,7 +179,6 @@ class SQLiteModule: DBModule {
                     table.column("apt_credit", .boolean)
                     table.column("offers_financing", .boolean)
                     table.column("in_private_community", .boolean)
-                    table.column("internal_id", .text)
                     table.column("video", .text)
                     table.column("reduced_mobility_compliant", .boolean)
                     table.column("display_address", .text)

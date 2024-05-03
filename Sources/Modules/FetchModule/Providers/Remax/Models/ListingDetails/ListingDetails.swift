@@ -42,12 +42,12 @@ public struct ListingDetail: Codable {
     let dimensionTotalBuilt: Double
     let dimensionCovered: Double
     let dimensionSemicovered: Double
-    let dimensionUncovered: Double
+    let dimensionUncovered: Double?
     
     // Additional Information
     let yearBuilt: Int?
     let quotes: Int
-    let video: String
+    let video: String?
     let conditions: [Condition]
     let type: PropertyType
     let operation: Operation

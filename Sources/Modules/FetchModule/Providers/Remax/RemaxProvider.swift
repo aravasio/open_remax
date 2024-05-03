@@ -10,7 +10,8 @@ fileprivate protocol ServiceProvider {
 }
 
 enum ApartmentListingError: Error {
-    case parsingFailed(reason: String)
+    case parsingFailed(Error)
+    case elementHasNoData
     case invalidURL
 }
 
@@ -102,7 +103,18 @@ extension FetchModule {
                 throw ApartmentListingError.invalidURL
             }
             let (data, _) = try await URLSession.shared.data(from: url)
-            return try JSONDecoder().decode(ListingDetailsResponse.self, from: data).data
+            
+            do {
+                let element = try JSONDecoder().decode(ListingDetailsResponse.self, from: data)
+                guard let data = element.data else {
+                    print(slug.value)
+                    throw ApartmentListingError.elementHasNoData
+                }
+                
+                return data
+            } catch {
+                throw ApartmentListingError.parsingFailed(error)
+            }
         }
     }
 }
