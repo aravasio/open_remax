@@ -1,6 +1,4 @@
 import Foundation
-//import NIO
-//import AsyncHTTPClient
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
