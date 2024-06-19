@@ -26,8 +26,8 @@ extension FetchModule {
             "25054@Villa%20Urquiza"
         ].joined(separator: ",")
         
-        private let MIN_PRICE = 200000
-        private let MAX_PRICE = 250000
+        private let MIN_PRICE = 1
+        private let MAX_PRICE = 999999999
         private let PAGE_SIZE: Int = 1000
 
         private var neighborhoodsFilter: String { "locations=in::::\(neighborhoods):::" }
@@ -60,6 +60,7 @@ extension FetchModule {
             }
             
             do {
+                print(url)
                 let (data, _) = try await URLSession.shared.data(from: url)
                 let pageData = try JSONDecoder().decode(ApiQueryResponse.self, from: data).page
                 var fetchedSlugs: [ListingSlug] = []
@@ -79,23 +80,31 @@ extension FetchModule {
             let maxConcurrentTasks = 100  // Maximum number of concurrent tasks
             var details = [ListingDetail]()
             let progressTracker = ProgressTracker(total: slugs.count)
-
-            return try await withThrowingTaskGroup(of: ListingDetail.self, body: { group in
+            
+            return try await withThrowingTaskGroup(of: ListingDetail?.self, body: { group in
                 for chunk in slugs.chunked(into: maxConcurrentTasks) {
                     for slug in chunk {
                         group.addTask {
-                            let result = try await self.fetchDetail(for: slug)
-                            await progressTracker.increment()
-                            return result
+                            do {
+                                let result = try await self.fetchDetail(for: slug)
+                                await progressTracker.increment()
+                                return result
+                            } catch {
+                                print("Error fetching detail for slug: \(slug.value) - \(error)")
+                                return nil  // Return nil for failed tasks
+                            }
                         }
                     }
                     for try await detail in group {
-                        details.append(detail)
+                        if let detail = detail {
+                            details.append(detail)
+                        }
                     }
                 }
                 return details
             })
         }
+
         
         private func fetchDetail(for slug: ListingSlug) async throws -> ListingDetail {
 //            print("Fetching detail for slug: \(slug.value)")
